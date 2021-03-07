@@ -40,10 +40,10 @@ To run the `cnb_utils.py` and `figures.ipynb` files from this repository, place 
 
 For running the Jupyter Notebooks on remote clusters, run 
 ```
-/path/to/concept_installation/python/bin/jupyter notebook --no-browser --ip=0.0.0.0 --port=8080
+/path/to/concept_installation/python/bin/jupyter notebook --no-browser --ip=127.0.0.1 --port=7095
 ```
 and then in a new terminal window on your local machine, run 
 ```
-ssh -N -f -L localhost:1234:localhost:8080 <usernanme>@<hostname>
+ssh -N -f -L 7095:localhost:7095 <usernanme>@<hostname>
 ```
-Pasting the link from the Jupyter server output on the cluster into a local broswer allows you to access the `figures.ipynb` code in your browser. 
+Copying and pasting the URL from the Jupyter server output on the cluster (`http://127.0.0.1:7095/?token=...`) into a local broswer allows you to access the `figures.ipynb` code in your browser. 
