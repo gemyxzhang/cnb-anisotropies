@@ -81,7 +81,7 @@ def get_distancesToPresent(start_index, present_index, a_array, q, m_nu):
     return distances_sum 
 
 
-
+# outdated but good to see integrals done without the speedup using np.arrays
 def get_deltaIntegrand(k, l_index, q_index, pt, nu_masses, nu_index, tau_0): 
     '''
     Args: 
@@ -107,14 +107,15 @@ def get_deltaIntegrand(k, l_index, q_index, pt, nu_masses, nu_index, tau_0):
     for q_i in range(n_qbins): 
         qs[q_i] = pt['q_ncdm[{},{}]'.format(nu_index, q_i)][0]*k_B*T_nu  # q now in units of eV 
 
+    m_nu = nu_masses[nu_index] # neutrino mass 
+    
     # get the index of the closest value in tau array to tau_0 or tau_ndec 
     taundec_index = np.argmin(np.abs(a - a_ndec)) # neutrino decoupling (take index 0 if times not early enough)
-    tau0_index = np.argmin(np.abs(tau - tau_0)) # should be same as tau[len(tau)-1]
+    tau0_index = np.argmin(np.abs(tau - tau_0)) # should be same as len(tau)-1
 
-    # get total distance traveled by neutrinos from dcoupling to present 
-    if (nu_masses[nu_index] < massless_cutoff): distanceToPresent = tau[tau0_index]-tau[taundec_index]
-    else: 
-        distanceToPresent = get_distanceToPresent(taundec_index, tau0_index, a, qs[q_index], nu_masses[nu_index])  
+    # get distances traveled by neutrinos at each time in a array between decoupling and present 
+    if (m_nu < massless_cutoff): distancesToPresent = tau[tau0_index]-tau[taundec_index:tau0_index]
+    else: distancesToPresent = get_distancesToPresent(taundec_index, tau0_index, a, qs[q_index], m_nu)
 
     # first term (not an integral)
     phi_const = 0.5*phi[taundec_index]*special.spherical_jn(l_index, k*distanceToPresent) 
@@ -139,7 +140,7 @@ def get_deltaIntegrand(k, l_index, q_index, pt, nu_masses, nu_index, tau_0):
             phi_term = 0 
         else: 
             phiprime_term = (2+(a[i]*nu_masses[nu_index]/qs[q_index])**2)*phi_prime[i]*dx*j_kdistance
-            phi_term = -2*(a[i]*nu_masses[nu_index]/qs[q_index])**2*a[i]*H/c*phi[i]*dx*j_kdistance
+            phi_term = 2*(a[i]*nu_masses[nu_index]/qs[q_index])**2*a[i]*H/c*phi[i]*dx*j_kdistance
         
         phi_integral += phi_term
         phiprime_integral += phiprime_term
@@ -149,7 +150,7 @@ def get_deltaIntegrand(k, l_index, q_index, pt, nu_masses, nu_index, tau_0):
 
 
 
-def get_deltaIntegrand_opt(k, l_index, q_index, pt, nu_masses, nu_index, tau_0, distance_cutoff): 
+def get_deltaIntegrand_opt(k, l_index, q_index, pt, earliest_tf, nu_masses, nu_index, tau_0, distance_cutoff):  
     '''
     Optimized version of get_deltaIntegrand with the implementation of a
     distance cut. 
@@ -159,6 +160,7 @@ def get_deltaIntegrand_opt(k, l_index, q_index, pt, nu_masses, nu_index, tau_0, 
     l_index (int): l index for Cl 
     q_index (int): q index for neutrinos 
     pt: perturbations output from CLASS for k 
+    earliest_tfs (tuple): phi and psi arguments as (phi, psi) of the earliest transfer fn
     nu_masses (list): neutrino masses 
     nu_index (int): index for neutrino species 
     tau_0: conformal age output from CLASS 
@@ -174,6 +176,9 @@ def get_deltaIntegrand_opt(k, l_index, q_index, pt, nu_masses, nu_index, tau_0, 
     tau = pt['tau [Mpc]']
     phi = pt['phi']
     phi_prime = pt['phi_prime']
+    psi = pt['psi']
+    phi_earliest, psi_earliest = earliest_tf
+    
     qs = np.zeros(n_qbins)
     for q_i in range(n_qbins): 
         qs[q_i] = pt['q_ncdm[{},{}]'.format(nu_index, q_i)][0]*k_B*T_nu  # q now in units of eV 
@@ -188,7 +193,7 @@ def get_deltaIntegrand_opt(k, l_index, q_index, pt, nu_masses, nu_index, tau_0, 
     if (m_nu < massless_cutoff): distancesToPresent = tau[tau0_index]-tau[taundec_index:tau0_index]
     else: distancesToPresent = get_distancesToPresent(taundec_index, tau0_index, a, qs[q_index], m_nu)  
 
-    start_index = taundec_index  # default for massless case 
+    start_index = taundec_index 
     
     # get the index of first item<distance_cutoff (assuming list in descending order)
     if (distance_cutoff < np.infty): 
@@ -197,25 +202,37 @@ def get_deltaIntegrand_opt(k, l_index, q_index, pt, nu_masses, nu_index, tau_0, 
     # only keep the part whose distance is within the cutoff 
     tau_array = tau[start_index:tau0_index+1]
     a_array = a[start_index:tau0_index+1]
-    a_length = len(a_array)
+    a_centers = 0.5*(a_array[:-1] + a_array[1:]) 
+    phi_prime_centers = 0.5*(phi_prime[start_index:tau0_index] + phi_prime[start_index+1:tau0_index+1])
+    phi_centers = 0.5*(phi[start_index:tau0_index] + phi[start_index+1:tau0_index+1])
+    psi_centers = 0.5*(psi[start_index:tau0_index] + psi[start_index+1:tau0_index+1])
+    dpsi = psi[1:]-psi[:-1]
+    dtau = tau[1:]-tau[:-1]
+    # to avoid divide by 0 error if we have repeated tau values
+    psi_prime = np.divide(dpsi, dtau, out=np.zeros_like(dpsi), where=(dtau != 0.))  
+    #psi_prime[np.where(psi_prime == np.inf)] = 0  
+    #psi_prime[np.where(psi_prime == -np.inf)] = 0
     
-    # first term (not an integral)
-    phi_const = 0.5*phi[taundec_index]*special.spherical_jn(l_index, k*distancesToPresent[0]) 
+    # calculate the distance to last scattering in case the input pt don't go early enough 
+    a_temp = np.logspace(-10, 0, base=10, num=1000) # a_ndec=1e-10
+    chi_dec = get_distancesToPresent(0, len(a_temp)-1, a_temp, qs[q_index], m_nu)[0]
     
     # calculate each step of the integral as an array 
-    dx_array = tau_array[1:]-tau_array[:a_length-1] # change of variable: x = tau_0-lambda => lambda = tau_0-x 
-    da_array = a_array[1:]-a_array[:a_length-1]
-    H_array = H0*np.sqrt(omega_m/a_array[:a_length-1]**3+omega_rad/a_array[:a_length-1]**4+omega_lambda)
+    dx_array = tau_array[1:]-tau_array[:-1]  # dtau array
+    H_array = H0*np.sqrt(omega_m/a_centers**3+omega_rad/a_centers**4+omega_lambda)
 
     jk_distances = special.spherical_jn(l_index, k*distancesToPresent[start_index:tau0_index])
     
     # each term carries a - sign when integrate from 0 to dec 
     if (nu_masses[nu_index] < massless_cutoff): 
-        phiprime_terms = 2*phi_prime[start_index:tau0_index]*dx_array*jk_distances
+        # first term (not an integral)
+        phi_const = (psi_earliest-0.5*phi_earliest)*special.spherical_jn(l_index, k*chi_dec) 
+        phiprime_terms = (phi_prime_centers + psi_prime)*dx_array*jk_distances
         phi_terms = 0
     else: 
-        phiprime_terms = (2+(a_array[:a_length-1]*m_nu/qs[q_index])**2)*phi_prime[start_index:tau0_index]*dx_array*jk_distances
-        phi_terms = -2*(a_array[:a_length-1]*m_nu/qs[q_index])**2*a_array[:a_length-1]*H_array/c*phi[start_index:tau0_index]*dx_array*jk_distances
+        phi_const = 0.5*phi_earliest*special.spherical_jn(l_index, k*chi_dec)
+        phiprime_terms = (2+(a_centers*m_nu/qs[q_index])**2)*phi_prime_centers*dx_array*jk_distances
+        phi_terms = 2*(a_centers*m_nu/qs[q_index])**2*a_centers*H_array/c*phi_centers*dx_array*jk_distances
     
     # do integral by sum 
     phi_integral = np.sum(phi_terms)
@@ -224,12 +241,13 @@ def get_deltaIntegrand_opt(k, l_index, q_index, pt, nu_masses, nu_index, tau_0, 
     return phi_const, phi_integral, phiprime_integral 
 
 
-def get_clqcomponents_LoS(nu_index, q_index, pts, nu_masses, is_lnk, k_magnitudes, tau_0, distance_cutoff):     
+def get_clqcomponents_LoS(nu_index, q_index, pts, earliest_tfs, nu_masses, is_lnk, k_magnitudes, ls, tau_0, distance_cutoff):     
     '''
     Args: 
     nu_index (int): index for neutrino species 
     q_index (int): q index for neutrinos 
     pts: perturbations output from CLASS at all ks  
+    earliest_tfs (tuple): phi and psi arguments as (phi, psi) of the earliest transfer fn
     nu_masses (list): neutrino masses 
     is_lnk (boolean): whether to do dlnk integral (True if assuming Harrison-Zel'dovich-Peebles spectrum) 
     k_magnitudes (np.array): array of k values 
@@ -242,6 +260,13 @@ def get_clqcomponents_LoS(nu_index, q_index, pts, nu_masses, is_lnk, k_magnitude
     (phiprime_integral)^2 to the total cl integral. 
     
     '''
+    
+    l_min = ls[0]
+    l_max = ls[-1]
+    
+    # the value at index 0 is not in the correct k range so get rid of it 
+    phi_earliest = earliest_tfs['phi'][1:]
+    psi_earliest = earliest_tfs['psi'][1:]
 
     cls = [] 
     phiconst_contribs = []
@@ -258,7 +283,7 @@ def get_clqcomponents_LoS(nu_index, q_index, pts, nu_masses, is_lnk, k_magnitude
 
         # calculate the cl integral 
         for i in range(len(k_magnitudes)-1):   # k_index = 0 -- n_kmodes - 1  
-            phi_const, phi_integral, phiprime_integral = get_deltaIntegrand_opt(k_magnitudes[i], l_index, q_index, pts[i], nu_masses, nu_index, tau_0, distance_cutoff)
+            phi_const, phi_integral, phiprime_integral = get_deltaIntegrand_opt(k_magnitudes[i], l_index, q_index, pts[i], [phi_earliest[i], psi_earliest[i]], nu_masses, nu_index, tau_0, distance_cutoff)
             
             # whether to integrate over lnk or k 
             if (is_lnk): 
@@ -271,10 +296,10 @@ def get_clqcomponents_LoS(nu_index, q_index, pts, nu_masses, is_lnk, k_magnitude
             else: 
                 dk = k_magnitudes[i+1]-k_magnitudes[i]
                 
-                cl += (4*np.pi)**2*As_default*k_magnitudes[i]**(ns-2)*(phi_const+phi_integral+phiprime_integral)**2*dk 
-                phiconst_contrib += (4*np.pi)**2*As_default*k_magnitudes[i]**(ns-2)*(phi_const)**2*dk
-                phi_contrib += (4*np.pi)**2*As_default*k_magnitudes[i]**(ns-2)*(phi_integral)**2*dk
-                phiprime_contrib += (4*np.pi)**2*As_default*k_magnitudes[i]**(ns-2)*(phiprime_integral)**2*dk
+                cl += T_nu**2*(4*np.pi)*As_default*k_magnitudes[i]**(ns-2)*(phi_const+phi_integral+phiprime_integral)**2*dk 
+                phiconst_contrib += T_nu**2*(4*np.pi)*As_default*k_magnitudes[i]**(ns-2)*(phi_const)**2*dk
+                phi_contrib += T_nu**2*(4*np.pi)*As_default*k_magnitudes[i]**(ns-2)*(phi_integral)**2*dk
+                phiprime_contrib += T_nu**2*(4*np.pi)*As_default*k_magnitudes[i]**(ns-2)*(phiprime_integral)**2*dk
 
         # scaling for the correct units 
         cls.append(cl*scaling)
@@ -285,12 +310,13 @@ def get_clqcomponents_LoS(nu_index, q_index, pts, nu_masses, is_lnk, k_magnitude
     return np.array(cls), np.array(phiconst_contribs), np.array(phi_contribs), np.array(phiprime_contribs)
 
 
-def get_clq_LoS(nu_index, q_index, pts, nu_masses, is_lnk, k_magnitudes, ls, tau_0, distance_cutoff, **kwargs):     
+def get_clq_LoS(nu_index, q_index, pts, earliest_tfs, nu_masses, is_lnk, k_magnitudes, ls, tau_0, distance_cutoff, **kwargs):     
     '''
     Args: 
     nu_index (int): index for neutrino species 
     q_index (int): q index for neutrinos 
     pts: perturbations output from CLASS at all ks  
+    earliest_tfs (tuple): phi and psi arguments as (phi, psi) of the earliest transfer fn
     nu_masses (list): neutrino masses 
     is_lnk (boolean): whether to do dlnk integral (True if assuming Harrison-Zel'dovich-Peebles spectrum) 
     k_magnitudes (np.array): array of k values 
@@ -310,6 +336,10 @@ def get_clq_LoS(nu_index, q_index, pts, nu_masses, is_lnk, k_magnitudes, ls, tau
     l_min = ls[0]
     l_max = ls[-1]
     
+    # the value at index 0 is not in the correct k range so get rid of it 
+    phi_earliest = earliest_tfs['phi'][1:]
+    psi_earliest = earliest_tfs['psi'][1:]
+    
     cls = [] 
 
     # l used for Bessel equations 
@@ -319,7 +349,8 @@ def get_clq_LoS(nu_index, q_index, pts, nu_masses, is_lnk, k_magnitudes, ls, tau
         # calculate the cl integral 
         for i in range(len(k_magnitudes)-1):   # k_index = 0 -- n_kmodes - 1  
             phi_const, phi_integral, phiprime_integral = get_deltaIntegrand_opt(k_magnitudes[i], l_index, q_index, pts[i], 
-                                                                                nu_masses, nu_index, tau_0, distance_cutoff)
+                                                                                [phi_earliest[i], psi_earliest[i]], nu_masses, 
+                                                                                nu_index, tau_0, distance_cutoff)
             
             # whether to integrate over lnk or k 
             if (is_lnk): 
@@ -339,12 +370,13 @@ def get_clq_LoS(nu_index, q_index, pts, nu_masses, is_lnk, k_magnitudes, ls, tau
     return np.array(cls)
 
 
-def get_dcl_dlnk(nu_index, q_index, l_index, pts, nu_masses, k_magnitudes, tau_0): 
+def get_dcl_dlnk(nu_index, q_index, l_index, pts, earliest_tfs, nu_masses, k_magnitudes, tau_0): 
     '''
     Args: 
     nu_index (int): index for neutrino species 
     q_index (int): q index for neutrinos 
-    pts: perturbations output from CLASS at all ks  
+    pts: perturbations output from CLASS at all ks
+    earliest_tfs (tuple): phi and psi arguments as (phi, psi) of the earliest transfer fn
     nu_masses (list): neutrino masses 
     k_magnitudes (np.array): array of k values
     tau_0: conformal age output from CLASS 
@@ -353,11 +385,16 @@ def get_dcl_dlnk(nu_index, q_index, l_index, pts, nu_masses, k_magnitudes, tau_0
     from line-of-sight integral method 
     '''
     
+    # the value at index 0 is not in the correct k range so get rid of it 
+    phi_earliest = earliest_tfs['phi'][1:]
+    psi_earliest = earliest_tfs['psi'][1:]
+    
     dcls = []
     
     for i in range(len(k_magnitudes)-1):   # k_index = 0 -- n_kmodes - 1  
         phi_const, phi_integral, phiprime_integral = get_deltaIntegrand_opt(k_magnitudes[i], l_index, q_index, pts[i], 
-                                                                            nu_masses, nu_index, tau_0, np.inf)
+                                                                            [phi_earliest[i], psi_earliest[i]], nu_masses, 
+                                                                            nu_index, tau_0, np.inf)
         
         dcl = scaling*T_nu**2*(4*np.pi)*As_default*(phi_const+phi_integral+phiprime_integral)**2
         dcls.append(dcl)
@@ -424,12 +461,13 @@ def get_clq_BH(q_index, pts, k_magnitudes, ls, is_lnk, n, **kwargs):
     return np.array(Cl0), np.array(Cl1), np.array(Cl2)
 
 
-def get_clqindep(nu_index, q_indices, pts, nu_masses, k_magnitudes, ls, tau_0): 
+def get_clqindep(nu_index, q_indices, pts, earliest_tfs, nu_masses, k_magnitudes, ls, tau_0): 
     '''
     Args: 
     nu_index (int): index for neutrino species 
     q_indices (int): q indices to integrate over to get q-indep average 
     pts: perturbations output from CLASS at all ks  
+    earliest_tfs (tuple): phi and psi arguments as (phi, psi) of the earliest transfer fn 
     nu_masses (list): neutrino masses 
     k_magnitudes (np.array): array of k values 
     ls (list): list of l values for which to calculate Cls
@@ -441,6 +479,10 @@ def get_clqindep(nu_index, q_indices, pts, nu_masses, k_magnitudes, ls, tau_0):
 
     l_min = ls[0]
     l_max = ls[-1]
+    
+    # the value at index 0 is not in the correct k range so get rid of it 
+    phi_earliest = earliest_tfs['phi'][1:]
+    psi_earliest = earliest_tfs['psi'][1:]
     
     cls = [] 
     
@@ -459,6 +501,7 @@ def get_clqindep(nu_index, q_indices, pts, nu_masses, k_magnitudes, ls, tau_0):
             
             for q in q_indices: 
                 phi_const, phi_integral, phiprime_integral = get_deltaIntegrand_opt(k_magnitudes[i], l_index, q, pts[i],
+                                                                                    [phi_earliest[i], psi_earliest[i]], 
                                                                                     nu_masses, nu_index, tau_0, np.infty)
                 deltaqs.append(phi_const+phi_integral+phiprime_integral)  
             
@@ -480,11 +523,17 @@ def get_clqindep(nu_index, q_indices, pts, nu_masses, k_magnitudes, ls, tau_0):
 
 
 
-def run_class(parameters):
+def run_class(parameters, gettransfer):
     '''
-    Run CLASS with the input parameters and return the pertubations and 
+    Run CLASS with the input parameters and return the perturbations and 
     the value of tau_0 (which should be fixed but we still return the value 
-    for the purpose of checking)
+    for the purpose of checking) and the earliest transfer (if asked) 
+    
+    Args: 
+    parameters: parameters to run CLASS 
+    gettransfer (boolean): whether to get the earliest transfer 
+    
+    Return: (pts, tau_0) if gettransfer=False and  (pts, tau_0, transfer) otherwise
     '''
 
     start_time = time.time()
@@ -495,7 +544,12 @@ def run_class(parameters):
 
     pts = cosmo.get_perturbations()['scalar']
     tau_0 = cosmo.get_current_derived_parameters(['conformal_age'])['conformal_age']
-
+    
     print("--- %s seconds ---" % (time.time() - start_time))
+    
+    # 45999 is the largest redshift possible 
+    if (gettransfer): 
+        tf = cosmo.get_transfer(45999)
+        return pts, tau_0, tf 
     
     return pts, tau_0
