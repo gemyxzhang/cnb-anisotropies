@@ -1,6 +1,10 @@
 # cnb-anisotropies
 
-This repository contains code that accompanies the paper [Multi-Messenger Astrophysics with the Cosmic Neutrino Background](https://arxiv.org/abs/2103.01274). The `perturbations.c` and `perturbations.h` files contain modifications made to the corresponding [CLASS](http://class-code.net/) files to extract neutrino perturbation information. 
+This repository contains code that accompanies the paper [Multi-Messenger Astrophysics with the Cosmic Neutrino Background](https://arxiv.org/abs/2103.01274). The `perturbations.c` and `perturbations.h` files contain modifications made to the corresponding [CLASS](http://class-code.net/) files to extract neutrino perturbation information. The notebook file computes and shows, for example, the CNB anisotropies and the corresponding expected neutrino capture rate variations for the PTOLEMY experiment, as shown in the maps below: 
+<p float="left">
+  <img src="/skymap.png" width="47%" />
+  <img src="/ratemap.png" width="47%" /> 
+</p>
 
 ## Prerequisites
 
