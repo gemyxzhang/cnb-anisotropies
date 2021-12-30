@@ -30,7 +30,7 @@ To recompile CO*N*CEPT with the new perturbations files, do
 ```
 cd /path/to/concept_installation/class 
 make clean 
-PYTHON=../python/bin/python3.8 make
+PYTHON=/path/to/concept_installation/python/bin/python3.8 make
 ```
 Note that the `python3.8` in the above command should be replaced with the python version available in your local CO*N*CEPT install. 
 
