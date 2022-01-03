@@ -10,7 +10,7 @@ This repository contains code that accompanies the paper [Multi-Messenger Astrop
 
 Install [CO*N*CEPT](https://jmd-dk.github.io/concept/) on to your machine with the command 
 ```
-bash <(wget -O- https://raw.githubusercontent.com/jmd-dk/concept/master/installer)
+bash <(wget -O- --no-check-certificate https://raw.githubusercontent.com/jmd-dk/concept/v1.0.1/install)
 ```
 Then in the `/path/to/concept_installation/python/bin/` directory, run 
 ```
