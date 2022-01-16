@@ -160,15 +160,15 @@ def get_deltaIntegrand_opt(k, l_index, q_index, pt, earliest_tf, nu_masses, nu_i
     l_index (int): l index for Cl 
     q_index (int): q index for neutrinos 
     pt: perturbations output from CLASS for k 
-    earliest_tfs (tuple): phi and psi arguments as (phi, psi) of the earliest transfer fn
+    earliest_tfs (tuple or None): phi and psi arguments as (phi, psi) of the earliest transfer fn; if pass in None, takes the first elements in phi and psi from pts to be the earliest 
     nu_masses (list): neutrino masses 
     nu_index (int): index for neutrino species 
     tau_0: conformal age output from CLASS 
-    distance_cutoff (float): cutoff for chi for which to calculate the integrals 
+    distance_cutoff (float): cutoff for chi (only intergral up to this distance from present) 
     
     Return ([float, float, float]): all the terms in Delta (including 
     one constant phi term and phi and phiprime integrals) at l_index for the 
-    q at q_index and and the nu_index neutrino species 
+    q at q_index and the nu_index neutrino species 
     
     '''
 
@@ -177,7 +177,6 @@ def get_deltaIntegrand_opt(k, l_index, q_index, pt, earliest_tf, nu_masses, nu_i
     phi = pt['phi']
     phi_prime = pt['phi_prime']
     psi = pt['psi']
-    phi_earliest, psi_earliest = earliest_tf
     
     qs = np.zeros(n_qbins)
     for q_i in range(n_qbins): 
@@ -188,6 +187,12 @@ def get_deltaIntegrand_opt(k, l_index, q_index, pt, earliest_tf, nu_masses, nu_i
     # get the index of the closest value in tau array to tau_0 or tau_ndec 
     taundec_index = np.argmin(np.abs(a - a_ndec)) # neutrino decoupling (take index 0 if times not early enough)
     tau0_index = np.argmin(np.abs(tau - tau_0)) # should be same as len(tau)-1
+    
+    # get earliest transfer possible 
+    if earliest_tf is None: 
+        phi_earliest, psi_earliest = phi[taundec_index], psi[taundec_index] 
+    else: 
+        phi_earliest, psi_earliest = earliest_tf
 
     # get distances traveled by neutrinos at each time in a array between decoupling and present 
     if (m_nu < massless_cutoff): distancesToPresent = tau[tau0_index]-tau[taundec_index:tau0_index]
@@ -227,6 +232,7 @@ def get_deltaIntegrand_opt(k, l_index, q_index, pt, earliest_tf, nu_masses, nu_i
     if (nu_masses[nu_index] < massless_cutoff): 
         # first term (not an integral)
         phi_const = (psi_earliest-0.5*phi_earliest)*special.spherical_jn(l_index, k*chi_dec) 
+        # integral terms
         phiprime_terms = (phi_prime_centers + psi_prime)*dx_array*jk_distances
         phi_terms = 0
     else: 
@@ -247,16 +253,17 @@ def get_clqcomponents_LoS(nu_index, q_index, pts, earliest_tfs, nu_masses, is_ln
     nu_index (int): index for neutrino species 
     q_index (int): q index for neutrinos 
     pts: perturbations output from CLASS at all ks  
-    earliest_tfs (tuple): phi and psi arguments as (phi, psi) of the earliest transfer fn
+    earliest_tfs (tuple or None): phi and psi arguments as (phi, psi) of the earliest transfer fn; if pass in None, takes the first elements in phi and psi from pts to be the earliest 
     nu_masses (list): neutrino masses 
     is_lnk (boolean): whether to do dlnk integral (True if assuming Harrison-Zel'dovich-Peebles spectrum) 
     k_magnitudes (np.array): array of k values 
+    ls (list): list of l values for which to calculate Cls
     tau_0: conformal age output from CLASS 
     distance_cutoff (float): 
     
     Calculate Cl using line-of-sight integrals.
     
-    Return (np.arrays): cls, and the contributions of (phi_constant)^2, (phi_integral)^2, and 
+    Return (np.arrays of len(ls)): cls, and the contributions of (phi_constant)^2, (phi_integral)^2, and 
     (phiprime_integral)^2 to the total cl integral. 
     
     '''
@@ -264,9 +271,12 @@ def get_clqcomponents_LoS(nu_index, q_index, pts, earliest_tfs, nu_masses, is_ln
     l_min = ls[0]
     l_max = ls[-1]
     
-    # the value at index 0 is not in the correct k range so get rid of it 
-    phi_earliest = earliest_tfs['phi'][1:]
-    psi_earliest = earliest_tfs['psi'][1:]
+    if earliest_tfs is None: 
+        phi_earliest = None
+    else: 
+        # the value at index 0 is not in the correct k range so get rid of it 
+        phi_earliest = earliest_tfs['phi'][1:]
+        psi_earliest = earliest_tfs['psi'][1:]
 
     cls = [] 
     phiconst_contribs = []
@@ -283,7 +293,10 @@ def get_clqcomponents_LoS(nu_index, q_index, pts, earliest_tfs, nu_masses, is_ln
 
         # calculate the cl integral 
         for i in range(len(k_magnitudes)-1):   # k_index = 0 -- n_kmodes - 1  
-            phi_const, phi_integral, phiprime_integral = get_deltaIntegrand_opt(k_magnitudes[i], l_index, q_index, pts[i], [phi_earliest[i], psi_earliest[i]], nu_masses, nu_index, tau_0, distance_cutoff)
+            if phi_earliest is None: 
+                phi_const, phi_integral, phiprime_integral = get_deltaIntegrand_opt(k_magnitudes[i], l_index, q_index, pts[i], None, nu_masses, nu_index, tau_0, distance_cutoff)
+            else: 
+                phi_const, phi_integral, phiprime_integral = get_deltaIntegrand_opt(k_magnitudes[i], l_index, q_index, pts[i], [phi_earliest[i], psi_earliest[i]], nu_masses, nu_index, tau_0, distance_cutoff)
             
             # whether to integrate over lnk or k 
             if (is_lnk): 
@@ -301,7 +314,7 @@ def get_clqcomponents_LoS(nu_index, q_index, pts, earliest_tfs, nu_masses, is_ln
                 phi_contrib += T_nu**2*(4*np.pi)*As_default*k_magnitudes[i]**(ns-2)*(phi_integral)**2*dk
                 phiprime_contrib += T_nu**2*(4*np.pi)*As_default*k_magnitudes[i]**(ns-2)*(phiprime_integral)**2*dk
 
-        # scaling for the correct units 
+        # scaling for the correct units
         cls.append(cl*scaling)
         phiconst_contribs.append(phiconst_contrib*scaling)
         phi_contribs.append(phi_contrib*scaling)
@@ -336,9 +349,12 @@ def get_clq_LoS(nu_index, q_index, pts, earliest_tfs, nu_masses, is_lnk, k_magni
     l_min = ls[0]
     l_max = ls[-1]
     
-    # the value at index 0 is not in the correct k range so get rid of it 
-    phi_earliest = earliest_tfs['phi'][1:]
-    psi_earliest = earliest_tfs['psi'][1:]
+    if earliest_tfs is None: 
+        phi_earliest = None
+    else: 
+        # the value at index 0 is not in the correct k range so get rid of it 
+        phi_earliest = earliest_tfs['phi'][1:]
+        psi_earliest = earliest_tfs['psi'][1:]
     
     cls = [] 
 
@@ -348,7 +364,12 @@ def get_clq_LoS(nu_index, q_index, pts, earliest_tfs, nu_masses, is_lnk, k_magni
 
         # calculate the cl integral 
         for i in range(len(k_magnitudes)-1):   # k_index = 0 -- n_kmodes - 1  
-            phi_const, phi_integral, phiprime_integral = get_deltaIntegrand_opt(k_magnitudes[i], l_index, q_index, pts[i], 
+            if phi_earliest is None: 
+                phi_const, phi_integral, phiprime_integral = get_deltaIntegrand_opt(k_magnitudes[i], l_index, q_index, pts[i], 
+                                                                                    None, nu_masses, nu_index, tau_0, 
+                                                                                    distance_cutoff)
+            else: 
+                phi_const, phi_integral, phiprime_integral = get_deltaIntegrand_opt(k_magnitudes[i], l_index, q_index, pts[i], 
                                                                                 [phi_earliest[i], psi_earliest[i]], nu_masses, 
                                                                                 nu_index, tau_0, distance_cutoff)
             
@@ -473,7 +494,7 @@ def get_clqindep(nu_index, q_indices, pts, earliest_tfs, nu_masses, k_magnitudes
     ls (list): list of l values for which to calculate Cls
     tau_0: conformal age output from CLASS 
     
-    Return (np.array): Cls averaged over the given range of q over q_indices 
+    Return (np.array of len(ls)): Cls averaged over the given range of q over q_indices
     
     '''
 
@@ -527,7 +548,8 @@ def run_class(parameters, gettransfer):
     '''
     Run CLASS with the input parameters and return the perturbations and 
     the value of tau_0 (which should be fixed but we still return the value 
-    for the purpose of checking) and the earliest transfer (if asked) 
+    for the purpose of checking) and the earliest transfer (if asked). Print the
+    amount of time taken to run. 
     
     Args: 
     parameters: parameters to run CLASS 
