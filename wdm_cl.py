@@ -39,8 +39,8 @@ ls = np.arange(l_min, l_max+1, 1)
 nu_masses_str = ['0.00001','0.01', '0.05', '2000'] 
 m1, m2, m3, m4 = float(nu_masses_str[0]), float(nu_masses_str[1]), float(nu_masses_str[2]), float(nu_masses_str[3])
 nu_masses = [m1, m2, m3, m4]  # eV
-k_min, k_max = 1e0, 1e1    # 1/Mpc
-n_kmodes = 10
+k_min, k_max = 1e-4, 1e1    # 1/Mpc
+n_kmodes = 200
 k_magnitudes_full = np.logspace(np.log(k_min), np.log(k_max), n_kmodes, base=np.e)
 l_max_ncdm = l_max
 n_qbins = 10
